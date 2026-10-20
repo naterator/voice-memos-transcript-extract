@@ -1,0 +1,61 @@
+name: Release assets
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Validate tag and run native tests
+        shell: bash
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v?(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          go vet ./...
+          go test -race ./...
+      - name: Build every desktop/server amd64 and arm64 target
+        shell: bash
+        env:
+          VERSION: ${{ github.event.release.tag_name }}
+        run: bash scripts/build.sh dist
+      - name: Native release CLI smoke
+        shell: bash
+        run: |
+          binary=dist/voice-memos-transcript-extract-linux-amd64
+          test "$("$binary" --version)" = "voice-memos-transcript-extract $RELEASE_TAG"
+          "$binary" --help
+      - uses: actions/upload-artifact@v6
+        with:
+          name: voice-memos-transcript-extract-binaries
+          path: dist/voice-memos-transcript-extract-*
+          if-no-files-found: error
+
+  upload:
+    needs: package
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: voice-memos-transcript-extract-binaries
+          path: dist
+      - name: Upload binaries to the user-created release
+        shell: bash
+        run: |
+          gh release upload "$RELEASE_TAG" dist/voice-memos-transcript-extract-* --repo "$GITHUB_REPOSITORY" --clobber

@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Format, vet, and native tests
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l cmd internal)"
+          if [ -n "$unformatted" ]; then
+            printf 'Formatting required:\n%s\n' "$unformatted"
+            exit 1
+          fi
+          go vet ./...
+          go test -race ./...
+      - name: Build every desktop/server amd64 and arm64 target
+        shell: bash
+        run: bash scripts/build.sh "$RUNNER_TEMP/binaries"
+      - name: Native CLI smoke
+        shell: bash
+        run: |
+          binary="$RUNNER_TEMP/binaries/voice-memos-transcript-extract-linux-amd64"
+          test "$("$binary" --version)" = "voice-memos-transcript-extract dev"
+          "$binary" --help
+          "$binary"
